@@ -16,11 +16,8 @@ import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {observer} from 'mobx-react';
 import {IconButton, Text} from 'react-native-paper';
 
-import {hasVideoCapability} from '../../utils/pal-capabilities';
-
 import {
   ChevronUpIcon,
-  VideoRecorderIcon,
   PlusIcon,
   AtomIcon,
 } from '../../assets/icons';
@@ -29,12 +26,12 @@ import {useTheme} from '../../hooks';
 
 import {createStyles} from './styles';
 
-import {chatSessionStore, modelStore, palStore, uiStore} from '../../store';
+import {chatSessionStore, modelStore, uiStore} from '../../store';
 
 import {MessageType} from '../../utils/types';
 import {L10nContext, UserContext} from '../../utils';
 
-import {SendButton, StopButton, Menu, VoiceChip} from '..';
+import {SendButton, StopButton, Menu} from '..';
 
 export interface ChatInputTopLevelProps {
   /** Whether the AI is currently streaming tokens */
@@ -129,9 +126,6 @@ export const ChatInput = observer(
     const inputRef = React.useRef<TextInput>(null);
     const editBarHeight = React.useRef(new Animated.Value(0)).current;
     const iconRotation = React.useRef(new Animated.Value(0)).current;
-    const activePalId = chatSessionStore.activePalId;
-    const currentActivePal = palStore.pals.find(pal => pal.id === activePalId);
-
     // Camera permission hook from react-native-vision-camera
     const {hasPermission, requestPermission} = useCameraPermission();
 
@@ -154,13 +148,7 @@ export const ChatInput = observer(
 
     const styles = createStyles({theme, isEditMode});
 
-    // For camera input, use promptText if provided
-    const isVideoCapable =
-      currentActivePal && hasVideoCapability(currentActivePal);
-    const value =
-      isVideoCapable && promptText !== undefined
-        ? promptText
-        : (textInputProps?.value ?? text);
+    const value = textInputProps?.value ?? text;
 
     React.useEffect(() => {
       if (isEditMode) {
@@ -191,12 +179,8 @@ export const ChatInput = observer(
     }, [isPickerVisible, iconRotation]);
 
     const handleChangeText = (newText: string) => {
-      if (isVideoCapable && onPromptTextChange) {
-        onPromptTextChange(newText);
-      } else {
-        setText(newText);
-        textInputProps?.onChangeText?.(newText);
-      }
+      setText(newText);
+      textInputProps?.onChangeText?.(newText);
     };
 
     const handleSend = () => {
@@ -328,7 +312,6 @@ export const ChatInput = observer(
       !isStreaming &&
       !isStopVisible &&
       user &&
-      !isVideoCapable && // Hide send button for video-capable pals
       (sendButtonVisibilityMode === 'always' || value.trim());
     const isSendButtonEnabled = value.trim().length > 0 && hasActiveModel;
     const sendButtonOpacity = isSendButtonEnabled ? 1 : 0.4;
@@ -338,7 +321,7 @@ export const ChatInput = observer(
       outputRange: ['0deg', '180deg'],
     });
 
-    const onSurfaceColor = currentActivePal?.color?.[0] || theme.colors.text;
+    const onSurfaceColor = theme.colors.text;
     const onSurfaceColorVariant = onSurfaceColor + '55'; // for disabled state or placeholder text
     // // Plus button state
     const isPlusButtonEnabled = !isStreaming && isVisionEnabled;
@@ -419,22 +402,10 @@ export const ChatInput = observer(
                     : 20,
               },
             ]}>
-            {/* Subtle Prompt Label for Video Pals */}
-            {isVideoCapable && (
-              <Text
-                variant="labelSmall"
-                style={[styles.promptLabel, {color: onSurfaceColorVariant}]}>
-                {l10n.palsScreen.prompt}:
-              </Text>
-            )}
             <TextInput
               ref={inputRef}
               multiline
-              placeholder={
-                isVideoCapable
-                  ? l10n.video.promptPlaceholder
-                  : l10n.components.chatInput.inputPlaceholder
-              }
+              placeholder={l10n.components.chatInput.inputPlaceholder}
               placeholderTextColor={onSurfaceColorVariant}
               underlineColorAndroid="transparent"
               {...textInputProps}
@@ -444,15 +415,10 @@ export const ChatInput = observer(
                 {
                   color: onSurfaceColor,
                 },
-                isVideoCapable && styles.inputWithLabel,
               ]}
               onChangeText={handleChangeText}
               value={value}
-              editable={
-                isVideoCapable
-                  ? !isStreaming && !isCameraActive
-                  : textInputProps?.editable !== false
-              }
+              editable={textInputProps?.editable !== false}
               testID="chat-input"
               accessibilityLabel="Message input"
             />
@@ -462,8 +428,8 @@ export const ChatInput = observer(
           <View style={styles.controlBar}>
             {/* Left Controls */}
             <View style={styles.leftControls}>
-              {/* Plus Button for Image Upload (only for regular chat) */}
-              {showImageUpload && !isVideoCapable && (
+              {/* Plus Button for Image Upload */}
+              {showImageUpload && (
                 <Menu
                   visible={showImageUploadMenu}
                   onDismiss={() => setShowImageUploadMenu(false)}
@@ -493,7 +459,7 @@ export const ChatInput = observer(
                 </Menu>
               )}
 
-              {/* Pal Selector */}
+              {/* Model Selector */}
               <View style={styles.palSelector}>
                 <TouchableOpacity
                   style={[
@@ -504,12 +470,9 @@ export const ChatInput = observer(
                           ? theme.colors.inverseOnSurface
                           : theme.colors.inverseSurface,
                     },
-                    currentActivePal?.color && {
-                      backgroundColor: currentActivePal?.color?.[0],
-                    },
                   ]}
                   onPress={onPalBtnPress}
-                  accessibilityLabel="Select Pal"
+                  accessibilityLabel="Select Model"
                   accessibilityRole="button">
                   <Animated.View
                     style={{
@@ -518,28 +481,6 @@ export const ChatInput = observer(
                     <ChevronUpIcon stroke={inputBackgroundColor} />
                   </Animated.View>
                 </TouchableOpacity>
-
-                {/* Pal Name Display */}
-                {currentActivePal?.name && hasActiveModel && (
-                  <Text
-                    style={[
-                      styles.palNameCompact,
-                      {
-                        color: onSurfaceColor,
-                      },
-                    ]}>
-                    Pal:{' '}
-                    <Text
-                      style={[
-                        styles.palNameValueCompact,
-                        {
-                          color: onSurfaceColor,
-                        },
-                      ]}>
-                      {currentActivePal?.name}
-                    </Text>
-                  </Text>
-                )}
               </View>
 
               {/* Thinking Toggle Button */}
@@ -591,36 +532,9 @@ export const ChatInput = observer(
                 </View>
               )}
 
-              {/* Voice chip (TTS) — always present so users can stop
-                  audio independently of text generation. Self-gates:
-                  returns null when TTS is unavailable. */}
-              <VoiceChip />
-
               {/* Send/Stop Button */}
               {isStopVisible ? (
                 <StopButton color={onSurfaceColor} onPress={onStopPress} />
-              ) : isVideoCapable && !isCameraActive ? (
-                /* Compact Start Video Button for Video Pals */
-                <TouchableOpacity
-                  style={[
-                    styles.compactVideoButton,
-                    {
-                      backgroundColor: onSurfaceColor,
-                    },
-                  ]}
-                  onPress={onStartCamera}
-                  accessibilityLabel="Start video analysis"
-                  accessibilityRole="button">
-                  <VideoRecorderIcon
-                    width={16}
-                    height={16}
-                    stroke="white"
-                    strokeWidth={2}
-                  />
-                  <Text style={styles.compactButtonText}>
-                    {l10n.video.startCamera}
-                  </Text>
-                </TouchableOpacity>
               ) : (
                 isSendButtonVisible && (
                   <View style={{opacity: sendButtonOpacity}}>

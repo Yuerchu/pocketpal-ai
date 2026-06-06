@@ -28,6 +28,7 @@ import {importChatSessions} from '../../utils/importUtils';
 import {
   exportChatSession,
   exportAllChatSessions,
+  exportRatedDataAsJsonl,
 } from '../../utils/exportUtils';
 
 import {RenameModal, UsageStats} from '..';
@@ -120,6 +121,15 @@ export const HeaderRight: React.FC = observer(() => {
     } catch (error) {
       console.error('Error exporting all sessions:', error);
       Alert.alert('Export Error', 'Failed to export all sessions.');
+    }
+    closeMenu();
+  };
+
+  const onPressExportRatedData = async () => {
+    try {
+      await exportRatedDataAsJsonl();
+    } catch (error) {
+      console.error('Error exporting rated data:', error);
     }
     closeMenu();
   };
@@ -242,6 +252,11 @@ export const HeaderRight: React.FC = observer(() => {
               key="export-all"
               onPress={onPressExportAllSessions}
               label={l10n.components.headerRight.exportAllSessions}
+            />,
+            <Menu.Item
+              key="export-rated"
+              onPress={onPressExportRatedData}
+              label="导出评分数据 (JSONL)"
             />,
             <Menu.Item
               key="import"

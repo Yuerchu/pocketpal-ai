@@ -6,11 +6,9 @@ import * as RNFS from '@dr.pogodin/react-native-fs';
 
 import {chatSessionRepository} from '../repositories/ChatSessionRepository';
 
-import {uiStore, palStore} from '../store';
+import {uiStore} from '../store';
 import {ensureLegacyStoragePermission} from './androidPermission';
-import {derivedText} from './chat';
-import {getAbsoluteThumbnailPath, isLocalThumbnailPath} from './imageUtils';
-import type {Pal} from '../types/pal';
+import {assistantId, derivedText} from './chat';
 import type {Message} from '../database';
 
 /**
@@ -126,120 +124,84 @@ export const exportAllChatSessions = async (): Promise<void> => {
 };
 
 /**
- * Export a single pal to a JSON file
- * @param palId The ID of the pal to export
+ * Export messages that have been rated (good/bad) as JSONL for DPO/SFT training.
  */
-export const exportPal = async (palId: string): Promise<void> => {
+export const exportRatedDataAsJsonl = async (): Promise<void> => {
   try {
-    const pal = palStore.getPals().find(p => p.id === palId);
-    if (!pal) {
-      throw new Error('Pal not found');
+    const sessions = await chatSessionRepository.getAllSessions();
+    const lines: string[] = [];
+
+    for (const session of sessions) {
+      const sessionData = await chatSessionRepository.getSessionById(
+        session.id,
+      );
+      if (!sessionData) {
+        continue;
+      }
+
+      const {messages} = sessionData;
+      // messages are sorted by position DESC — reverse to chronological
+      const chronological = [...messages].reverse();
+
+      for (let i = 0; i < chronological.length; i++) {
+        const msg = chronological[i];
+        const inMemory = msg.toMessageObject();
+        const msgRating = inMemory.metadata?.rating;
+        if (!msgRating) {
+          continue;
+        }
+        // Only assistant messages can be rated
+        if (inMemory.author.id !== assistantId) {
+          continue;
+        }
+
+        const history: Array<{role: string; content: string}> = [];
+        for (let j = 0; j <= i; j++) {
+          const histMsg = chronological[j].toMessageObject();
+          const role =
+            histMsg.author.id === assistantId ? 'assistant' : 'user';
+          const content = derivedText(histMsg).trim();
+          if (!content) {
+            continue;
+          }
+          history.push({role, content});
+        }
+
+        // Ensure history starts with user and ends with assistant
+        while (history.length > 0 && history[0].role !== 'user') {
+          history.shift();
+        }
+        if (
+          history.length === 0 ||
+          history[history.length - 1].role !== 'assistant'
+        ) {
+          continue;
+        }
+
+        lines.push(
+          JSON.stringify({
+            messages: history,
+            rating: msgRating,
+            timestamp: inMemory.createdAt || 0,
+          }),
+        );
+      }
     }
 
-    const exportData = await transformExportPal(pal);
-
-    const timestamp = format(new Date(), 'yyyy-MM-dd_HH-mm-ss');
-    const sanitizedName = pal.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    const filename = `pal_${sanitizedName}_v${exportData.version}_${timestamp}.json`;
-
-    const jsonData = JSON.stringify(exportData, null, 2);
-
-    await shareJsonData(jsonData, filename);
-  } catch (error) {
-    console.error('Error exporting pal:', error);
-    throw error;
-  }
-};
-
-/**
- * Export all pals to a JSON file
- */
-export const exportAllPals = async (): Promise<void> => {
-  try {
-    const pals = palStore.getPals();
-    const exportData = pals.map(transformExportPal);
-
-    const timestamp = format(new Date(), 'yyyy-MM-dd_HH-mm-ss');
-    const filename = `all_pals_${timestamp}.json`;
-
-    const jsonData = JSON.stringify(exportData, null, 2);
-
-    await shareJsonData(jsonData, filename);
-  } catch (error) {
-    console.error('Error exporting all pals:', error);
-    throw error;
-  }
-};
-
-const transformExportPal = async (pal: Pal) => {
-  // Create export data with version information
-  // Data Transfer Object (DTO) for exported pal data (format v2.0)
-
-  // Handle thumbnail image - convert local images to base64 for portability
-  let thumbnailData: string | undefined;
-  let thumbnailUrl: string | undefined = pal.thumbnail_url;
-
-  if (pal.thumbnail_url && isLocalThumbnailPath(pal.thumbnail_url)) {
-    try {
-      // Convert local image to base64 for export
-      const absolutePath = getAbsoluteThumbnailPath(pal.thumbnail_url);
-      const base64Content = await RNFS.readFile(absolutePath, 'base64');
-
-      // Get file extension from original file (fallback to jpg)
-      const fileExtension =
-        absolutePath.toLowerCase().split('.').pop() || 'jpg';
-
-      thumbnailData = `data:image/${fileExtension};base64,${base64Content}`;
-      thumbnailUrl = undefined; // Don't export local file paths
-    } catch (error) {
-      console.warn('Failed to read thumbnail for export:', error);
-      thumbnailUrl = undefined; // Remove invalid local path
+    if (lines.length === 0) {
+      Alert.alert('No Rated Data', 'No messages have been rated yet.');
+      return;
     }
+
+    const jsonlData = lines.join('\n') + '\n';
+    const timestamp = format(new Date(), 'yyyy-MM-dd_HH-mm-ss');
+    const filename = `rated_data_${timestamp}.jsonl`;
+
+    await shareJsonData(jsonlData, filename);
+  } catch (error) {
+    console.error('Error exporting rated data:', error);
+    Alert.alert('Export Error', 'Failed to export rated data.');
   }
-
-  const exportData = {
-    // Export format version for future compatibility
-    version: '2.0',
-
-    // Core pal data (modern format)
-    id: pal.id,
-    name: pal.name,
-    description: pal.description,
-    thumbnail_url: thumbnailUrl, // Remote URLs only
-    thumbnail_data: thumbnailData, // Base64 embedded images
-    systemPrompt: pal.systemPrompt,
-    originalSystemPrompt: pal.originalSystemPrompt,
-    isSystemPromptChanged: pal.isSystemPromptChanged,
-    useAIPrompt: pal.useAIPrompt,
-    defaultModel: pal.defaultModel,
-    promptGenerationModel: pal.promptGenerationModel,
-    generatingPrompt: pal.generatingPrompt,
-    color: pal.color,
-    capabilities: pal.capabilities,
-    // Talent set (pact.talents) and the optional greeting/suggestedPrompts
-    // are first-class persisted state from migration v7+; round-tripping
-    // them is required so backups + share-and-reimport don't silently drop
-    // a Pal's tool configuration or greeting.
-    pact: pal.pact,
-    greeting: pal.greeting,
-    parameters: pal.parameters,
-    parameterSchema: pal.parameterSchema,
-    source: pal.source,
-    palshub_id: pal.palshub_id,
-    creator_info: pal.creator_info,
-    categories: pal.categories,
-    tags: pal.tags,
-    rating: pal.rating,
-    review_count: pal.review_count,
-    protection_level: pal.protection_level,
-    price_cents: pal.price_cents,
-    is_owned: pal.is_owned,
-    generation_settings: pal.completionSettings,
-    created_at: pal.created_at,
-    updated_at: pal.updated_at,
-  };
-
-  return exportData;
 };
 
 /**

@@ -1,0 +1,99 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22.21.0'
+          cache: yarn
+
+      - name: Install Yarn
+        run: npm install -g yarn
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Create dummy google-services.json
+        run: |
+          cat > android/app/google-services.json << 'EOL'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [{
+              "client_info": {
+                "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                "android_client_info": {
+                  "package_name": "com.pocketpalai"
+                }
+              },
+              "api_key": [{
+                "current_key": "dummy-api-key"
+              }]
+            }]
+          }
+          EOL
+
+      - name: Create .env
+        run: |
+          cat > .env << 'EOL'
+          FIREBASE_FUNCTIONS_URL=https://dummy.com
+          SUPABASE_URL=https://dummy.supabase.co
+          SUPABASE_ANON_KEY=dummy
+          PALSHUB_API_BASE_URL=https://dummy.com
+          APP_URL=pocketpal://app
+          ENABLE_PALSHUB_INTEGRATION=false
+          ENABLE_AUTHENTICATION=false
+          ENABLE_OFFLINE_MODE=true
+          GOOGLE_IOS_CLIENT_ID=dummy
+          GOOGLE_WEB_CLIENT_ID=dummy
+          EOL
+
+      - name: Create release keystore
+        working-directory: android/app
+        run: |
+          keytool -genkeypair -v \
+            -storetype PKCS12 \
+            -keystore pocketpal-release-key.keystore \
+            -alias pocketpal_key_alias \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass build-password \
+            -keypass build-password \
+            -dname "CN=Elegy Build, OU=Build, O=Elegy, L=Build, S=Build, C=CN"
+
+      - name: Build APK
+        working-directory: android
+        env:
+          APP_RELEASE_STORE_PASSWORD: build-password
+          APP_RELEASE_KEY_PASSWORD: build-password
+        run: ./gradlew assembleProdRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: elegy-pocketpal-apk
+          path: android/app/build/outputs/apk/prod/release/app-prod-release.apk
+          retention-days: 90

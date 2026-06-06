@@ -18,4 +18,7 @@ export const styles = ({theme}: {theme: Theme}) =>
       color: theme.colors.error,
       fontSize: 10,
     },
+    ratingButton: {
+      padding: 2,
+    },
   });

@@ -14,7 +14,7 @@ import {
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
 
-import {ttsStore, uiStore} from './src/store';
+import {uiStore} from './src/store';
 import {useTheme} from './src/hooks';
 import {useDeepLinking} from './src/hooks/useDeepLinking';
 import {Theme} from './src/utils/types';
@@ -26,10 +26,8 @@ import {ROUTES} from './src/utils/navigationConstants';
 import {
   SidebarContent,
   ModelsHeaderRight,
-  PalHeaderRight,
   HeaderLeft,
   AppWithMigration,
-  TTSSetupSheet,
 } from './src/components';
 import {MarkdownProvider} from './src/components/MarkdownView';
 import {AutomationBridge, BenchmarkRunnerScreen} from './src/__automation__';
@@ -43,8 +41,6 @@ import {
   // Dev tools screen. Only available in debug mode.
   DevToolsScreen,
 } from './src/screens';
-import PalsScreen from './src/screens/PalsScreen';
-
 // Check if app is in debug mode
 const isDebugMode = __DEV__;
 
@@ -66,14 +62,6 @@ const App = observer(() => {
   // Initialize locale with the current language
   React.useEffect(() => {
     initLocale(uiStore.language);
-  }, []);
-
-  // Initialize TTS store (memory gate + AppState/session listeners).
-  // Fire-and-forget: `init()` is idempotent and swallows its own errors.
-  React.useEffect(() => {
-    ttsStore.init().catch(() => {
-      // init() swallows its own errors; catch to satisfy no-floating-promises.
-    });
   }, []);
 
   return (
@@ -105,15 +93,6 @@ const App = observer(() => {
                         component={gestureHandlerRootHOC(ChatScreen)}
                         options={{
                           headerShown: false,
-                        }}
-                      />
-                      <Drawer.Screen
-                        name={ROUTES.PALS}
-                        component={gestureHandlerRootHOC(PalsScreen)}
-                        options={{
-                          headerRight: () => <PalHeaderRight />,
-                          headerStyle: styles.headerWithoutDivider,
-                          title: currentL10n.screenTitles.pals,
                         }}
                       />
                       <Drawer.Screen
@@ -184,7 +163,6 @@ const App = observer(() => {
                         />
                       )}
                     </Drawer.Navigator>
-                    <TTSSetupSheet />
                   </BottomSheetModalProvider>
                 </NavigationContainer>
               </MarkdownProvider>
